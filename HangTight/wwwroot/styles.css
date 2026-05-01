@@ -1,0 +1,131 @@
+:root {
+    --bg-1: #0f1f44;
+    --bg-2: #191248;
+    --surface: rgba(10, 16, 32, 0.78);
+    --line: rgba(255, 255, 255, 0.16);
+    --text: #f3f5ff;
+    --accent: #ffb703;
+    --accent-2: #fb8500;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    min-height: 100%;
+    font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+    background:
+        radial-gradient(1100px 700px at 82% -10%, rgba(71, 96, 255, 0.4), transparent 62%),
+        radial-gradient(1000px 600px at -12% 8%, rgba(0, 196, 255, 0.23), transparent 58%),
+        linear-gradient(180deg, var(--bg-1), var(--bg-2));
+    color: var(--text);
+}
+
+#root {
+    min-height: 100vh;
+    padding: 16px;
+}
+
+.game-shell {
+    max-width: 1080px;
+    margin: 0 auto;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    overflow: hidden;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01));
+    box-shadow: 0 22px 50px rgba(0, 0, 0, 0.42);
+}
+
+.hud {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+    flex-wrap: wrap;
+}
+
+.hud-block {
+    min-width: 130px;
+}
+
+.hud-label {
+    display: block;
+    font-size: 0.7rem;
+    opacity: 0.82;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.hud-value {
+    font-size: 1.15rem;
+    font-weight: 700;
+}
+
+.hud-value.emphasis {
+    color: var(--accent);
+}
+
+.status {
+    text-align: right;
+    font-size: 0.88rem;
+}
+
+.canvas-wrap {
+    width: 100%;
+    position: relative;
+    background: #061124;
+}
+
+.race-canvas {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16 / 9;
+    display: block;
+}
+
+.controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    padding: 12px;
+    background: var(--surface);
+    border-top: 1px solid var(--line);
+}
+
+.control-btn {
+    border: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    touch-action: none;
+    user-select: none;
+}
+
+.control-btn.active {
+    background: linear-gradient(180deg, var(--accent), var(--accent-2));
+    color: #1c0e00;
+    border-color: transparent;
+}
+
+.control-btn.restart {
+    grid-column: 1 / -1;
+}
+
+@media (min-width: 780px) {
+    .controls {
+        grid-template-columns: repeat(4, 1fr) 1fr;
+    }
+
+    .control-btn.restart {
+        grid-column: auto;
+    }
+}
