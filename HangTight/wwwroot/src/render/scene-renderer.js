@@ -1,5 +1,5 @@
 (function registerSceneRenderer(ns) {
-    const { road, laneDividerMarkers, warningSigns, traffic } = ns.config;
+    const { road, laneDividerMarkers, warningSigns, goalPosts, traffic } = ns.config;
     const { lerp, clamp } = ns.math;
     const roadModel = ns.roadModel;
 
@@ -250,6 +250,57 @@
         }
     }
 
+    function drawGoalPostLayer(ctx, width, height, horizon, engineState) {
+        const visibleStartMeters = engineState.roadMeters + road.nearMeters;
+        const visibleEndMeters = engineState.roadMeters + road.farMeters;
+        const intervalMeters = Math.max(1, goalPosts.intervalMeters);
+        const firstGoalIndex = Math.max(1, Math.floor(visibleStartMeters / intervalMeters) - 1);
+        const lastGoalIndex = Math.ceil(visibleEndMeters / intervalMeters) + 1;
+
+        for (let goalIndex = firstGoalIndex; goalIndex <= lastGoalIndex; goalIndex += 1) {
+            const goalWorldMeters = goalIndex * intervalMeters;
+            const depthMeters = goalWorldMeters - engineState.roadMeters;
+            if (depthMeters <= road.nearMeters || depthMeters > road.farMeters) {
+                continue;
+            }
+
+            const t = roadModel.screenRatioFromDepthMeters(depthMeters);
+            const yBase = horizon + t * (height - horizon);
+            const { center, half } = roadModel.projectRoadSlice(
+                t,
+                width,
+                engineState,
+                engineState.roadMeters,
+                goalWorldMeters,
+                engineState.playerX
+            );
+            const pixelsPerMeter = roadModel.pixelsPerMeterAtDepth(width, depthMeters);
+            const shoulderOffsetPx = goalPosts.shoulderOffsetMeters * pixelsPerMeter;
+            const poleThicknessPx = Math.max(2, goalPosts.postThicknessMeters * pixelsPerMeter);
+            const postHeightPx = Math.max(12, goalPosts.postHeightMeters * pixelsPerMeter);
+            const leftPoleX = center - half - shoulderOffsetPx;
+            const rightPoleX = center + half + shoulderOffsetPx;
+            const topY = yBase - postHeightPx;
+
+            ctx.fillStyle = "#f4f8ff";
+            ctx.fillRect(leftPoleX - poleThicknessPx * 0.5, topY, poleThicknessPx, postHeightPx);
+            ctx.fillRect(rightPoleX - poleThicknessPx * 0.5, topY, poleThicknessPx, postHeightPx);
+            ctx.fillRect(leftPoleX - poleThicknessPx * 0.5, topY, (rightPoleX - leftPoleX) + poleThicknessPx, poleThicknessPx);
+
+            ctx.fillStyle = "rgba(8, 12, 18, 0.2)";
+            ctx.fillRect(leftPoleX - poleThicknessPx * 0.5, yBase, poleThicknessPx, Math.max(1, poleThicknessPx * 0.7));
+            ctx.fillRect(rightPoleX - poleThicknessPx * 0.5, yBase, poleThicknessPx, Math.max(1, poleThicknessPx * 0.7));
+
+            const distanceKm = goalIndex * (intervalMeters / 1000);
+            const labelSizePx = clamp(postHeightPx * 0.19, 8, 22);
+            ctx.fillStyle = "#0f1520";
+            ctx.font = `700 ${Math.round(labelSizePx)}px "Trebuchet MS", sans-serif`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "alphabetic";
+            ctx.fillText(`${distanceKm} km`, center, topY - poleThicknessPx * 0.6);
+        }
+    }
+
     function drawOpponentBikeSprite(ctx, x, y, scale, color) {
         const width = 36 * scale;
         const height = 52 * scale;
@@ -269,7 +320,7 @@
         ctx.restore();
     }
 
-    function drawPlayerBikeSprite(ctx, x, y, steerInput, isCrashing) {
+    function drawPlayerBikeSprite(ctx, x, y, steerInput, isCrashing, skidIntensity, nowSec) {
         const lean = steerInput * 0.16;
         ctx.save();
         ctx.translate(x, y);
@@ -286,10 +337,26 @@
         ctx.fillRect(-34, 4, 68, 24);
         ctx.fillStyle = "#f5f8ff";
         ctx.fillRect(-10, -40, 20, 16);
+
+        if (skidIntensity > 0.02) {
+            const sprayAlpha = lerp(0.08, 0.45, clamp(skidIntensity, 0, 1));
+            ctx.fillStyle = `rgba(235, 242, 252, ${sprayAlpha})`;
+            for (const side of [-1, 1]) {
+                const pulse = 0.72 + Math.sin(nowSec * 28 + side) * 0.28;
+                const sprayRadius = lerp(7, 18, skidIntensity) * pulse;
+                const sprayX = side * 34;
+                const sprayY = 22 + Math.sin(nowSec * 20 + side * 2) * 2.4;
+                ctx.beginPath();
+                ctx.ellipse(sprayX, sprayY, sprayRadius, sprayRadius * 0.56, side * 0.18, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
         ctx.restore();
     }
 
-    function renderRaceScene(ctx, canvas, engineState, steerInput, nowSec) {
+    function renderRaceScene(ctx, canvas, engineState, steerInput, nowSec, options = {}) {
+        const drawPlayerBike = options.drawPlayerBike !== false;
         const width = canvas.width;
         const height = canvas.height;
         const horizon = height * 0.33;
@@ -373,6 +440,7 @@
         drawLaneDividerMarkers(ctx, width, height, horizon, engineState);
         drawLeftShoulderMarkers(ctx, width, height, horizon, engineState);
         drawCurveWarningSignLayer(ctx, width, height, horizon, engineState);
+        drawGoalPostLayer(ctx, width, height, horizon, engineState);
 
         const sortedTraffic = [...engineState.traffic].sort((a, b) => b.z - a.z);
         sortedTraffic.forEach((rider) => {
@@ -389,8 +457,18 @@
             drawOpponentBikeSprite(ctx, x, y, scale, rider.color);
         });
 
-        const playerX = width / 2 + engineState.playerX * roadModel.pixelsPerMeterAtDepth(width, road.nearMeters);
-        drawPlayerBikeSprite(ctx, playerX, height - 66, steerInput, nowSec < engineState.crashUntil);
+        if (drawPlayerBike) {
+            const playerX = width / 2 + engineState.playerX * roadModel.pixelsPerMeterAtDepth(width, road.nearMeters);
+            drawPlayerBikeSprite(
+                ctx,
+                playerX,
+                height - 66,
+                steerInput,
+                nowSec < engineState.crashUntil,
+                engineState.skidIntensity || 0,
+                nowSec
+            );
+        }
     }
 
     ns.renderer = {

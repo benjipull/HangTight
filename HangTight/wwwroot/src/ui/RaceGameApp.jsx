@@ -7,6 +7,8 @@
 
     function RaceGameApp() {
         const canvasRef = useRef(null);
+        const bikeCanvasRef = useRef(null);
+        const bikeRendererRef = useRef(null);
         const engineSoundRef = useRef(null);
         const controlsRef = useRef({
             left: false,
@@ -100,6 +102,7 @@
 
         useEffect(() => {
             const canvas = canvasRef.current;
+            const bikeCanvas = bikeCanvasRef.current;
             if (!canvas) {
                 return undefined;
             }
@@ -109,12 +112,31 @@
                 return undefined;
             }
 
+            const tryCreate3dBikeRenderer = () => {
+                if (bikeRendererRef.current || !bikeCanvas) {
+                    return;
+                }
+
+                const createPlayerBike3dRenderer = ns.playerBike3d?.createPlayerBike3dRenderer;
+                if (!createPlayerBike3dRenderer) {
+                    return;
+                }
+
+                bikeRendererRef.current = createPlayerBike3dRenderer(bikeCanvas);
+            };
+
+            tryCreate3dBikeRenderer();
+
             const resizeCanvas = () => {
                 const rect = canvas.getBoundingClientRect();
                 const dpr = window.devicePixelRatio || 1;
                 canvas.width = Math.floor(rect.width * dpr);
                 canvas.height = Math.floor((rect.width * 9) / 16 * dpr);
                 context.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+                if (bikeRendererRef.current) {
+                    bikeRendererRef.current.resize(rect.width, rect.height, dpr);
+                }
             };
 
             resizeCanvas();
@@ -131,8 +153,20 @@
                 const nowSec = nowMs / 1000;
                 const engineState = engineStateRef.current;
                 const steeringInput = stepSimulation(engineState, controlsRef.current, dt, nowSec);
-                syncEngineSound(engineSoundRef.current, engineState.speed, controlsRef.current.accelerate);
-                renderRaceScene(context, canvas, engineState, steeringInput, nowSec);
+                syncEngineSound(
+                    engineSoundRef.current,
+                    engineState.speed,
+                    controlsRef.current.accelerate,
+                    engineState.skidIntensity
+                );
+                tryCreate3dBikeRenderer();
+                renderRaceScene(context, canvas, engineState, steeringInput, nowSec, {
+                    drawPlayerBike: !bikeRendererRef.current
+                });
+                if (bikeRendererRef.current) {
+                    bikeRendererRef.current.update(engineState, steeringInput, nowSec);
+                    bikeRendererRef.current.render();
+                }
 
                 uiUpdateAccumulator += dt;
                 if (uiUpdateAccumulator >= 0.08) {
@@ -151,6 +185,10 @@
             return () => {
                 resizeObserver.disconnect();
                 window.cancelAnimationFrame(animationFrame);
+                if (bikeRendererRef.current) {
+                    bikeRendererRef.current.dispose();
+                    bikeRendererRef.current = null;
+                }
             };
         }, []);
 
@@ -185,6 +223,7 @@
 
                 <div className="canvas-wrap">
                     <canvas className="race-canvas" ref={canvasRef} />
+                    <canvas className="bike-3d-canvas" ref={bikeCanvasRef} />
                 </div>
 
                 <div className="controls">

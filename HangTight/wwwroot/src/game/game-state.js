@@ -1,5 +1,5 @@
 (function registerGameState(ns) {
-    const { road, traffic, speed, physics, ui } = ns.config;
+    const { road, traffic, speed, physics, ui, goalPosts } = ns.config;
     const { lerp, clamp, pickRandomItem } = ns.math;
     const roadModel = ns.roadModel;
 
@@ -22,8 +22,11 @@
             crashUntil: 0,
             gameOver: false,
             started: false,
+            skidIntensity: 0,
+            isSkidding: false,
             traffic: [],
             lastStatus: ui.gameStartStatus,
+            nextGoalPostMeters: goalPosts.intervalMeters,
             roadPlan: [],
             roadPlanEndMeters: 0,
             roadPlanEndHeadingRadians: 0
@@ -39,7 +42,10 @@
         engineState.crashUntil = 0;
         engineState.gameOver = false;
         engineState.started = false;
+        engineState.skidIntensity = 0;
+        engineState.isSkidding = false;
         engineState.lastStatus = ui.gameStartStatus;
+        engineState.nextGoalPostMeters = goalPosts.intervalMeters;
         engineState.traffic = Array.from(
             { length: traffic.opponentCount },
             (_, i) => createTrafficRider(60 + i * 40, 280 + i * 44)
@@ -84,6 +90,14 @@
         const pullDirection = roadAngleDegrees === 0 ? 0 : -Math.sign(roadAngleDegrees);
         const curvePull = pullDirection * steerGrip * pullRatio;
         engineState.playerX += (steeringInput * steerGrip + curvePull) * dt;
+        const skidRange = Math.max(0.0001, physics.skidFullPullRatio - physics.skidStartPullRatio);
+        const targetSkidIntensity = clamp((pullRatio - physics.skidStartPullRatio) / skidRange, 0, 1);
+        const skidLerpFactor = clamp(dt * 11, 0, 1);
+        engineState.skidIntensity = lerp(engineState.skidIntensity ?? 0, targetSkidIntensity, skidLerpFactor);
+        engineState.isSkidding = engineState.started
+            && !engineState.gameOver
+            && engineState.skidIntensity > 0.08
+            && engineState.speed > 8;
 
         engineState.playerX = clamp(
             engineState.playerX,
@@ -99,6 +113,15 @@
         engineState.speed = clamp(engineState.speed, 0, currentMaxSpeed);
         const speedMetersPerSecond = engineState.speed / 3.6;
         engineState.roadMeters += speedMetersPerSecond * dt * physics.visualWorldSpeedMultiplier;
+
+        let crossedGoalPost = false;
+        while (!engineState.gameOver && engineState.started && engineState.roadMeters >= engineState.nextGoalPostMeters) {
+            const crossedKm = Math.round(engineState.nextGoalPostMeters / 1000);
+            engineState.timeLeft += goalPosts.timeBonusSeconds;
+            engineState.nextGoalPostMeters += goalPosts.intervalMeters;
+            engineState.lastStatus = `Checkpoint ${crossedKm} km: +${goalPosts.timeBonusSeconds}s`;
+            crossedGoalPost = true;
+        }
 
         if (engineState.started && !engineState.gameOver) {
             engineState.timeLeft -= dt;
@@ -136,6 +159,10 @@
 
         if (!engineState.started) {
             engineState.lastStatus = "Use W/A/S/D or arrows.";
+        } else if (crossedGoalPost) {
+            // Keep checkpoint message for this frame.
+        } else if (!engineState.gameOver && engineState.isSkidding) {
+            engineState.lastStatus = "Skidding! Slow down or reduce steering load.";
         } else if (!engineState.gameOver && onGrass) {
             engineState.lastStatus = `Off-road: grass limits speed to ${speed.grassMaxKmh} km/h.`;
         } else if (!engineState.gameOver && nowSec > engineState.crashUntil) {
